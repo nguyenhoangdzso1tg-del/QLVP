@@ -24,7 +24,54 @@ body{
 
 .sub{
     color:#64748b;
-    margin-bottom:30px;
+    margin-bottom:24px;
+}
+
+.coso-label{
+    text-align:left;
+    font-weight:600;
+    color:#334155;
+    margin-bottom:10px;
+    font-size:15px;
+}
+
+.coso-row{
+    display:flex;
+    gap:6px;
+    padding:5px;
+    background:#eef2f7;
+    border:1px solid #e2e8f0;
+    border-radius:14px;
+    margin-bottom:22px;
+    box-shadow:inset 0 1px 4px rgba(15,23,42,.06);
+}
+
+.coso-btn{
+    flex:1;
+    width:auto;
+    padding:15px 8px;
+    font-size:15px;
+    background:#64748b;         /* xám — chưa chọn */
+    color:#fff;
+    border:1.5px solid #556378;
+    border-radius:10px;
+    font-weight:600;
+    cursor:pointer;
+    transition:background .4s ease, color .3s ease, border-color .35s ease, box-shadow .35s ease, transform .2s;
+}
+
+.coso-btn:hover{
+    background:#7b8798;
+    border-color:#64748b;
+    transform:translateY(-1px);
+}
+
+/* Nút đang chọn: đỏ — nút kia đứng yên màu xám */
+.coso-btn.selected{
+    background:#2644dc;
+    border-color:#1c31b9;
+    box-shadow:0 6px 16px rgba(38, 41, 220, 0.35);
+    transform:translateY(-1px);
 }
 
 .login-container input{
@@ -36,11 +83,11 @@ body{
     margin-bottom:20px;
 }
 
-.login-container button{
+.login-container .enter-btn{
     width:100%;
     padding:14px;
     font-size:16px;
-    background:#2563eb;
+    background:#3c25eb;
     color:white;
     border:none;
     border-radius:8px;
@@ -48,6 +95,6 @@ body{
     font-weight:bold;
 }
 
-.login-container button:hover{
-    background:#4e71d2;
+.login-container .enter-btn:hover{
+    background:#4e59d2;
 }

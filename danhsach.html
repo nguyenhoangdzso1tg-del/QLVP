@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <meta charset="UTF-8">
   
   <title>Danh sách vi phạm</title>
@@ -25,7 +25,7 @@
     border-collapse: collapse;
     background: white;
     border-radius: 10px;
-    overflow: hidden;
+    overflow: clip; /* clip giữ bo góc, KHÔNG tạo vùng cuộn -> sticky vẫn chạy */
     box-shadow: 0 10px 25px rgba(73, 68, 68, 0.859);
   }
 
@@ -37,6 +37,15 @@
     padding: 12px 10px;
     text-align: center;
     font-size: 14px;
+  }
+
+  /* Header dính phía trên khi cuộn danh sách */
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: #22419e;
+    box-shadow: inset 0 -2px 0 rgba(255,255,255,0.25), 0 2px 6px rgba(0,0,0,0.15);
   }
 
   tbody tr:nth-child(even) {
@@ -193,6 +202,25 @@
   display: inline-flex;
 }
 
+/* Khối xóa cả tháng (admin) — có khoảng cách, gọn gàng */
+.month-delete-wrap {
+  display: none;
+  align-items: center;
+  gap: 8px;
+}
+#filterMonth {
+  padding: 10px 14px;
+  font-size: 15px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  min-height: 44px;
+  box-sizing: border-box;
+}
+@media (max-width: 768px) {
+  #filterMonth { width: 100%; min-width: 0; }
+  .month-delete-wrap { flex-direction: column; align-items: stretch; width: 100%; }
+}
+
 </style>
 </head>
 <body>
@@ -200,15 +228,74 @@
   <i class="fa-solid fa-arrow-left"></i> Quay lại nhập vi phạm
 </a>
 
-<h2>Danh sách vi phạm</h2>
+<h2>Danh sách vi phạm — <span id="cosoTitle" style="color:#2563eb;">…</span></h2>
+<script>
+  // Hiện tên cơ sở đang xem ngay trên tiêu đề
+  const cosoTitle = document.getElementById("cosoTitle");
+  if (cosoTitle) {
+    const c = localStorage.getItem("coso");
+    cosoTitle.textContent = c ? "Cơ sở " + c : "Chưa chọn cơ sở";
+  }
+</script>
 <div class="filter-box">
   <div class="left">
     <input type="date" id="filterDate">
     <button class="filter-btn" id="btnFilter">Lọc</button>
     <button class="filter-btn gray" id="btnClear">Tất cả</button>
+        
 
+    <!-- Chỉ hiện khi đã Lọc 1 ngày -->
+    <button type="button" class="filter-btn" id="btnExport"
+      style="display:none; background:#059669;">
+      Xuất Excel
+    </button>
+    <button type="button" class="filter-btn" id="btnExportSang"
+      style="display:none; background:#059669;" title="Xuất các bản ghi BUỔI SÁNG đã lọc">
+      Xuất buổi sáng
+    </button>
+    <button type="button" class="filter-btn" id="btnExportChieu"
+      style="display:none; background:#059669;" title="Xuất các bản ghi BUỔI CHIỀU đã lọc">
+      Xuất buổi chiều
+    </button>
+
+    <!-- Chỉ admin: xóa toàn bộ 1 tháng -->
+    <span id="monthDeleteWrap" class="month-delete-wrap" style="display:none;">
+      <input type="month" id="filterMonth" title="Chọn tháng cần xóa">
+      <button type="button" class="filter-btn" id="btnDeleteMonth" style="background:#dc2626;">
+        <i class="fa-solid fa-trash-can"></i> Xóa cả tháng
+      </button>
+    </span>
+
+<!-- Admin -->
+<!-- Admin -->
+<button type="button" class="filter-btn" id="btnAdmin"
+  style="background:#7c3aed;">
+  Admin
+</button>
+<button type="button" class="filter-btn gray" id="btnAdminOut"
+  style="display:none;">
+  <i class="fa-solid fa-lock"></i> Thoát Admin
+</button>
+
+<!-- Form mật khẩu (ẩn mặc định) -->
+<div id="adminLoginBox" style="
+  display:none; width:100%; max-width:320px;
+  background:#fff; border:1px solid #cbd5e1; border-radius:10px;
+  padding:12px; margin-top:4px; box-shadow:0 4px 12px rgba(0,0,0,.08);
+">
+  <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:#334155;">
+    Đăng nhập Admin để xóa vi phạm
+  </div>
+  <input type="password" id="adminPassword" placeholder="Mật khẩu"
+    style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:15px;">
+  <div style="display:flex;gap:8px;margin-top:10px;">
+    <button type="button" class="filter-btn" id="btnAdminLogin" style="flex:1;">Đăng nhập</button>
+    <button type="button" class="filter-btn gray" id="btnAdminCancel" style="flex:1;">Hủy</button>
+  </div>
+  <div id="adminMsg" style="margin-top:8px;font-size:13px;color:#dc2626;"></div>
+</div>
     <!-- Nút thùng rác: bật chế độ chọn nhiều -->
-    <button class="btn-trash" id="btnTrash" title="Xóa nhiều">
+    <button class="btn-trash" id="btnTrash" title="Xóa nhiều" style="display:none;">
       <i class="fa-solid fa-trash"></i> Xóa nhiều
     </button>
 
@@ -252,8 +339,9 @@
 <div id="pagination" style="margin-top:20px; text-align:right;"></div>
 <script type="module">
 const name = localStorage.getItem("nguoiNhap");
+const coso = localStorage.getItem("coso");
 
-if(!name){
+if(!name || !coso){
   window.location.href = "login.html";
 }
 </script>

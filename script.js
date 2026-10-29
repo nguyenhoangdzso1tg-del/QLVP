@@ -7,6 +7,12 @@ import {
   getDocs
 } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
+/* ===== CƠ SỞ (Chu Văn An / Mạc Cửu) ===== */
+const COSO_CVA = "Chu Văn An";
+const COSO_MC = "Mạc Cửu";
+const COSO = localStorage.getItem("coso") || "";
+if (!COSO) window.location.href = "login.html";
+
 
 // 2. Khởi tạo các biến cho lịch
 
@@ -77,7 +83,8 @@ const VIOLATION_TYPES = [
   "Sai đồng phục",
   "Không thẻ sinh viên",
   "Vắng có phép",
-  "Vắng không phép"
+  "Vắng không phép",
+  "Vắng chào cờ"
 ];
 
 
@@ -120,12 +127,17 @@ function aggregateOne(v) {
     result[type] = 0;
   });
 
+  // các lỗi KHÁC (gõ tay, không thuộc 7 loại chuẩn)
+  result.khac = [];
+
   // tách lỗi
-  const list = v.vipham.split(",").map(x => x.trim());
+  const list = String(v.vipham || "").split(",").map(x => x.trim()).filter(Boolean);
 
   list.forEach(l => {
-    if (result[l] !== undefined) {
+    if (VIOLATION_TYPES.includes(l)) {
       result[l]++;
+    } else {
+      result.khac.push(l);
     }
   });
 
@@ -145,12 +157,27 @@ function groupViolations(data) {
       VIOLATION_TYPES.forEach(t => {
         map[key][t] += temp[t];
       });
+      map[key].khac.push(...temp.khac);
       map[key].tong += temp.tong;
     }
   });
 
   return Object.values(map);
 }
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Cột "Chi tiết khác": tên các lỗi gõ tay (cột "Khác" chỉ chứa số để Excel cộng được)
+function khacNamesHtml(khac) {
+  const arr = khac || [];
+  return arr.length ? '<span class="khac-names">' + escapeHtml(arr.join(", ")) + "</span>" : "";
+}
+
 function renderTable(list) {
   const tbody = document.getElementById("calendarViolationList");
 
@@ -174,6 +201,9 @@ function renderTable(list) {
       <td>${v["Không thẻ sinh viên"]}</td>
       <td>${v["Vắng có phép"]}</td>
       <td>${v["Vắng không phép"]}</td>
+      <td>${v["Vắng chào cờ"]}</td>
+      <td>${(v.khac || []).length}</td>
+      <td class="khac-cell">${khacNamesHtml(v.khac)}</td>
       <td><b>${v.tong}</b></td>
     `;
 
@@ -184,31 +214,6 @@ function renderTable(list) {
     "Tổng số lỗi: " + list.reduce((s, v) => s + v.tong, 0);
 }
 
-async function reload() {
-  // Nếu đang chọn 1 ngày cụ thể → KHÔNG LỌC TUẦN
-  if (selectedDate) {
-    const { day, month, year } = selectedDate;
-
-    const q = query(
-      collection(db, "violations"),
-      where("year", "==", year),
-      where("month", "==", month),
-      where("day", "==", day)
-    );
-
-    const snap = await getDocs(q);
-    const raw = snap.docs.map(d => d.data());
-    renderTable(groupViolations(raw));
-    return;
-  }
-
-  // Ngược lại → lọc theo tuần
-  const year = currentYear;
-  const month = currentMonth + 1;
-
-  const raw = await loadFromFirebase(year, month, week);
-  renderTable(groupViolations(raw));
-}
 async function loadMultiDays() {
   if (selectedDates.length === 0) {
     document.getElementById("calendarViolationList").innerHTML = "";
@@ -216,22 +221,32 @@ async function loadMultiDays() {
     return;
   }
 
-  let allData = [];
-
-  for (const d of selectedDates) {
-    const q = query(
+  // Chạy song song các ngày để nhanh hơn (trước đây chạy tuần tự)
+  const queries = selectedDates.map(d =>
+    query(
       collection(db, "violations"),
+      where("coso", "==", COSO),
       where("year", "==", d.year),
       where("month", "==", d.month),
       where("day", "==", d.day)
+    )
+  );
+
+  try {
+    const snaps = await Promise.all(queries.map(q => getDocs(q)));
+
+    const allData = [];
+    snaps.forEach(snap => snap.forEach(doc => allData.push(doc.data())));
+
+    const grouped = groupViolations(allData);
+    renderTable(grouped);
+  } catch (e) {
+    console.error(e);
+    alert(
+      "Lỗi tải dữ liệu.\nNếu Firebase yêu cầu tạo index, mở link trong Console (F12) (nhớ chọn đúng cơ sở tương ứng).\n" +
+      (e.message || e)
     );
-
-    const snap = await getDocs(q);
-    allData = allData.concat(snap.docs.map(doc => doc.data()));
   }
-
-  const grouped = groupViolations(allData);
-  renderTable(grouped);
 }
 
 function handleDateClick(cell) {
@@ -265,21 +280,6 @@ function handleDateClick(cell) {
   loadMultiDays();
 }
 
-async function reloadByDate() {
-  const { day, month, year } = selectedDate;
-
-  const q = query(
-    collection(db, "violations"),
-    where("year", "==", year),
-    where("month", "==", month),
-    where("day", "==", day)
-  );
-
-  const snap = await getDocs(q);
-  const raw = snap.docs.map(d => d.data());
-
-  renderTable(groupViolations(raw));
-}
 function updateSelectedDaysLabel() {
   const label = document.getElementById("selectedDaysLabel");
 
@@ -304,6 +304,64 @@ function updateSelectedDaysLabel() {
 
   label.innerText = "Các ngày đã chọn: " + text;
 }
+
+/* ===== CHỌN NHANH CẢ THÁNG / BỎ CHỌN ===== */
+function selectAllMonth() {
+  // Chọn hết các ngày đang hiển thị trên lịch (tháng đang xem)
+  const cells = document.querySelectorAll("#calendar-body td[data-day]");
+  let added = 0;
+
+  cells.forEach(cell => {
+    const day = Number(cell.dataset.day);
+    const month = Number(cell.dataset.month);
+    const year = Number(cell.dataset.year);
+
+    const key = `${year}-${month}-${day}`;
+    const exists = selectedDates.findIndex(
+      d => `${d.year}-${d.month}-${d.day}` === key
+    );
+
+    if (exists < 0) {
+      selectedDates.push({ day, month, year });
+      cell.classList.add("active");
+      added++;
+    }
+  });
+
+  if (added === 0 && selectedDates.length > 0) {
+    alert("Cả tháng này đã được chọn rồi!");
+  }
+
+  updateSelectedDaysLabel();
+  loadMultiDays();
+}
+
+function clearSelection() {
+  selectedDates = [];
+  document.querySelectorAll("#calendar-body td.active").forEach(c => c.classList.remove("active"));
+  updateSelectedDaysLabel();
+  loadMultiDays();
+}
+
+document.getElementById("selectAllMonth").addEventListener("click", selectAllMonth);
+document.getElementById("clearSelection").addEventListener("click", clearSelection);
+// Excel: đổi ô "chữ số" thành số thật để dùng được SUM / công thức
+function coerceNumericCells(ws) {
+  Object.keys(ws).forEach(addr => {
+    if (addr.charAt(0) === "!") return;
+    const cell = ws[addr];
+    if (!cell || cell.t !== "s" || typeof cell.v !== "string") return;
+    const s = cell.v.trim();
+    // chỉ nhận số thuần (tránh đổi nhầm mã SV / ngày / lớp)
+    if (/^-?\d{1,9}(\.\d+)?$/.test(s)) {
+      cell.t = "n";
+      cell.v = Number(s);
+      delete cell.w;
+    }
+  });
+  return ws;
+}
+
 document.getElementById("exportExcelBtn").addEventListener("click", () => {
     const table = document.getElementById("violationTable");
 
@@ -312,10 +370,17 @@ document.getElementById("exportExcelBtn").addEventListener("click", () => {
         return;
     }
 
-    const workbook = XLSX.utils.table_to_book(table, { sheet: "Vi phạm" });
+    const aoa = [[ "Cơ sở: " + COSO ]]; // dòng cơ sở ở trên đầu
+    table.querySelectorAll("tr").forEach(tr => {
+        aoa.push(Array.from(tr.children).map(td => td.innerText.trim()));
+    });
 
-    const fileName = "vi_pham_" + new Date().toISOString().slice(0,10) + ".xlsx";
-    XLSX.writeFile(workbook, fileName);
+    const ws = coerceNumericCells(XLSX.utils.aoa_to_sheet(aoa));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Vi phạm");
+
+    const fileName = "vi_pham_" + COSO.replace(" ", "_") + "_" + new Date().toISOString().slice(0,10) + ".xlsx";
+    XLSX.writeFile(wb, fileName);
 });
 function groupMultiDays(data) {
   const map = {};
@@ -332,7 +397,8 @@ function groupMultiDays(data) {
         lop: v.lop,
         khoa: v.khoa,
         khoaHoc: v.khoaHoc,
-        tong: 0
+        tong: 0,
+        khac: []
       };
 
       // init = 0
@@ -345,6 +411,7 @@ function groupMultiDays(data) {
       map[key][t] += temp[t];
     });
 
+    map[key].khac.push(...temp.khac);
     map[key].tong += temp.tong;
   });
 
@@ -371,6 +438,9 @@ function renderMergeTable(list) {
       <td>${v["Không thẻ sinh viên"]}</td>
       <td>${v["Vắng có phép"]}</td>
       <td>${v["Vắng không phép"]}</td>
+      <td>${v["Vắng chào cờ"]}</td>
+      <td>${(v.khac || []).length}</td>
+      <td class="khac-cell">${khacNamesHtml(v.khac)}</td>
       <td><b>${v.tong}</b></td>
     `;
 
@@ -384,23 +454,33 @@ document.getElementById("mergeBtn").addEventListener("click", async () => {
     return;
   }
 
-  let allData = [];
-
-  for (const d of selectedDates) {
-    const q = query(
+  // Chạy song song các ngày cho nhanh
+  const queries = selectedDates.map(d =>
+    query(
       collection(db, "violations"),
+      where("coso", "==", COSO),
       where("year", "==", d.year),
       where("month", "==", d.month),
       where("day", "==", d.day)
+    )
+  );
+
+  try {
+    const snaps = await Promise.all(queries.map(q => getDocs(q)));
+
+    const allData = [];
+    snaps.forEach(snap => snap.forEach(doc => allData.push(doc.data())));
+
+    const merged = groupMultiDays(allData);
+
+    renderMergeTable(merged);
+  } catch (e) {
+    console.error(e);
+    alert(
+      "Lỗi gộp dữ liệu.\nNếu Firebase yêu cầu tạo index, mở link trong Console (F12).\n" +
+      (e.message || e)
     );
-
-    const snap = await getDocs(q);
-    allData = allData.concat(snap.docs.map(doc => doc.data()));
   }
-
-  const merged = groupMultiDays(allData);
-
-  renderMergeTable(merged);
 });
 document.getElementById("exportExcelBtn2").addEventListener("click", () => {
     const table = document.getElementById("mergeTable");
@@ -410,8 +490,15 @@ document.getElementById("exportExcelBtn2").addEventListener("click", () => {
         return;
     }
 
-    const workbook = XLSX.utils.table_to_book(table, { sheet: "Bảng gộp" });
+    const aoa = [[ "Cơ sở: " + COSO ]]; // dòng cơ sở ở trên đầu
+    table.querySelectorAll("tr").forEach(tr => {
+        aoa.push(Array.from(tr.children).map(td => td.innerText.trim()));
+    });
 
-    const fileName = "bang_gop_" + new Date().toISOString().slice(0,10) + ".xlsx";
-    XLSX.writeFile(workbook, fileName);
+    const ws = coerceNumericCells(XLSX.utils.aoa_to_sheet(aoa));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Bảng gộp");
+
+    const fileName = "bang_gop_" + COSO.replace(" ", "_") + "_" + new Date().toISOString().slice(0,10) + ".xlsx";
+    XLSX.writeFile(wb, fileName);
 });

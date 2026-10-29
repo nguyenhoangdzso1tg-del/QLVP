@@ -227,16 +227,24 @@
         lops.map(k => `<option value="${escapeAttr(k)}">`).join("");
     }
 
+    function normText(s) {
+      return String(s || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
     function renderTable(filter = "") {
-      const kw = filter.trim().toLowerCase();
+      const kw = filter.trim();
       let list = allStudents;
       if (kw) {
-        list = allStudents.filter(s =>
-          (s.maSV || "").toLowerCase().includes(kw) ||
-          (s.tenSV || "").toLowerCase().includes(kw) ||
-          (s.lop || "").toLowerCase().includes(kw) ||
-          (s.khoaHoc || "").toLowerCase().includes(kw)
-        );
+        const tokens = normText(kw).split(" ").filter(Boolean);
+        list = allStudents.filter(s => {
+          const hay = normText([s.maSV, s.tenSV, s.lop, s.khoaHoc, s.khoa].join(" "));
+          return tokens.every(t => hay.includes(t));
+        });
       }
       const show = list.slice(0, 50);
       const tbody = document.getElementById("tbody");
